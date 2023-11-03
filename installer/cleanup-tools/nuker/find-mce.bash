@@ -1,0 +1,1 @@
+../../common/find-mce.bash
