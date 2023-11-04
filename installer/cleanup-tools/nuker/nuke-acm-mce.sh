@@ -46,106 +46,23 @@ source "$my_dir/common-functions.bash"
 source "$my_dir/find-mce.bash"
 source "$my_dir/find-mch.bash"
 
-opt_flags="w:dadyz"
 
-nuking_confirme=0
-hub_or_agent="both"
-nuke_dependencies=0
-dry_run_mode=0
+#-----------------------------#
+# Message-blurting functions  #
+#-----------------------------#
 
-while getopts "$opt_flags" OPTION; do
+function msg() {
+   echo "$@"
+}
 
-   if [[ $OPTARG == "-"* ]]; then
-      # We don't expect any option args that start with a dash, so getopt is likely
-      # consuming the next option as if it were this options argument because the
-      # argument is missing in the invocation.
+funciton wmsg() {
+   echo "Warning:" "$@"
+}
 
-      >&2 echo "Error: Argument for -$OPTION option is missing."
-      exit 1
-   fi
+funciton emsg() {
+   echo "Error:" "$@"
+}
 
-   case "$OPTION" in
-      d) dry_run_mode=1
-         ;;
-      w) hub_or_agent="$OPTARG"
-         ;;
-      y) nuking_confirmed=1
-         ;;
-      z) nuke_dependencies=1
-         ;;
-      ?) exit 1
-         ;;
-   esac
-done
-shift "$(($OPTIND -1))"
-
-do_hub_stuff=0
-do_agent_stuff=0
-
-if [[ "$hub_or_agent" == "agent" ]]; then
-   echo "PErforming cleanup of ACM/MCE agent components."
-   do_agent_stuff=1
-elif [[ "$hub_or_agent" == "hub" ]]; then
-   echo "PErforming cleanup of ACM/MCE hub components."
-   do_hub_stuff=1
-elif [[ "$hub_or_agent" == "both" ]]; then
-   echo "PErforming cleanup of ACM/MCE hub and agent components."
-   do_agent_stuff=1
-   do_hub_stuff=1
-else
-   echo "Unrecognized argument for -w flag: $hub_or_agent."
-   exit 5
-fi
-
-if [[ $nuke_dependencies -ne 0 ]]; then
-
-   # TODO: Allow these to be requested individually.
-
-   echo "Will also perform cleanup the following depenedncies:"
-   echo "- Removing Red Hat OADP resources"
-   echo "- Removing Valero reources"
-   echo "- Removing selected Prometheus dependencies"
-   echo "- Disabling user-workload monitoring"
-   nuke_velero=1
-   nuke_oadp=1
-   nuke_prometheus=1
-   nuke_user_resource_monitoring=1
-fi
-
-if [[ $dry_run_mode -ne 0 ]]; then
-   echo "COnfirm-options-only mode requested, quitting."
-   exit 5
-fi
-
-if [[ $nuking_confirmed -eq 0 ]]; then
-   echo ""
-   echo "WARNING:"
-   echo ""
-   echo "This script performs an agressive cleanup of typical remnants of an ACM"
-   echo "or MCE hub or agent install.  Its intended to be sed to cleanup after a"
-   echo "failed install or uninstall in order to prepare the OCP cluster ffor a"
-   echo "new install attempt."
-   echo ""
-   echo "USE  OF THIS SCRIPT WILL RESULT IN THE DELETION/LOSS OF ALL ACM OR MCE"
-   echo "CUSTOM RESOURCE INSTANCES AND OTHER CONFIGURATION DATA.  THIS DATA WILL"
-   echo "BE DELETED WITHOUT PERFORMING ANY KIND OF BACKUP FIRST."
-   echo ""
-   echo ""
-   echo "BESIDES REMOVING RESOURCES THAT ARE SPECIFIC TO ACM OR MCE, THIS SCRIPT"
-   echo "WILL OPTONALLY ALSO REMOVE SOME DEPENDENT OPERATORS AND RESOURCE TYPES"
-   echo "THAT ARE INStALLED BY ACM OR MCE AND ASSUMED TO BE USED BY ACM OR MCE ONLY."
-   echo "THIS CLEANUP ACTION COULD AFFECT OTHER APPLICATIONS OR OPERATORS INSTALLED"
-   echo "ON THE SAME CLUSTER AS ACM OR MCE IF THOSE OTHER APPLICATIONS OR OPERATORS"
-   echo "RELY ON THE REMOVED OR RECONFIGURED THINGS.  PLEASE REFER TO COMMENTS AT"
-   echo "THE TOP OF THE SCRIPT FOR A LIST OF RISKS IN THIS CATEGORY."
-   echo ""
-   echo "If you wish to proceed, invoke this script specifying the -y option to"
-   echo "acknowledge these risks and proceeed with cleanup."
-
-   exit 5
-fi
-
-exit 0
 #-----------------------------------------#
 # Lowest-level Resource nuking primitives #
 #-----------------------------------------#
@@ -182,129 +99,139 @@ function do_chg_no_stderr() {
 }
 
 function patch_resource() {
+
+   local dash_lower_n_opt=()
    if [[ "$1" == "-n" ]]; then
-      local ns="$2"
-      local kind_and_name="$3"
-      shift 3
-      do_chg_no_stdout oc -n "$ns" patch "$kind_and_name" "$@"
-   else
-      local kind_and_name="$1"
-      shift 1
-      do_chg_no_stdout oc patch "$kind_and_name" "$@"
+      dash_lower_n_opt=("$1" "$2")
+      shift 2
    fi
+   local kind_and_name="$1"
+   shift 1
+
+   do_chg_no_stdout oc "${dash_lower_n_opt[@]}" patch "$kind_and_name" "$@"
 }
 
 function zorch_finalizer() {
 
+   local dash_lower_n_opt=()
    if [[ "$1" == "-n" ]]; then
-      local ns="$2"
-      local kind_and_name="$3"
+      dash_lower_n_opt=("$1" "$2")
+      shift 2
+   fi
 
-      local get_json='{.metadata.finalizers}'
-      local patch_json='{"metadata":{"finalizers":null}}'
+   local kind_and_name="$1"
 
-      local finalizers=$(oc -n "$ns" get "$kind_and_name" -o "jsonpath=$get_json" 2> /dev/null)
-      if [[ -n "$finalizers" ]]; then
-         patch_resource -n "$ns" "$kind_and_name" --type=merge -p "$patch_json"
-      fi
+   local get_json='{.metadata.finalizers}'
+   local patch_json='{"metadata":{"finalizers":null}}'
+
+   local finalizers=$(oc "${dash_lower_n_opt[@]}" get "$kind_and_name" -o "jsonpath=$get_json" 2> /dev/null)
+   if [[ -n "$finalizers" ]]; then
+      patch_resource "${dash_lower_n_opt[@]}" "$kind_and_name" --type=merge -p "$patch_json"
+   fi
+}
+
+function delete_resource() {
+
+   # Doesn't zorch finalizers, just deletes.
+
+   local ns=""
+   local dash_lower_n_opt=()
+   if [[ "$1" == "-n" ]]; then
+      ns="$2"
+      dash_lower_n_opt=("$1" "$2")
+      shift 2
+   fi
+   local kind_and_name="$1"
+
+   if ! oc "${dash_lower_n_opt[@]}" get "$kind_and_name" -o yaml > /dev/null 2>&1; then
+      return
+   fi
+
+   if [[ -n "$ns" ]]; then
+      msg "Deleting $kind_and_name from namespace $ns."
    else
-      local kind_and_name="$1"
+      msg "Deleting $kind_and_name."
+   fi
 
-      local finalizers=$(oc get "$kind_and_name" -o "jsonpath=$get_json" 2> /dev/null)
-      if [[ -n "$finalizers" ]]; then
-         patch_resource "$kind_and_name" --type=merge -p "$patch_json"
+   do_chg_no_stderr oc "${dash_lower_n_opt[@]}" delete --ignore-not-found --timeout=15s "$kind_and_name"
+   if [[ $? -ne 0 ]]; then
+
+      if [[ -n "$ns" ]]; then
+         msg "Warniing: Could not delete $kind_and_name from namespace $ns (timeout)."
+      else
+         msg "Warniing: Could not delete $kind_and_name (timeout)."
       fi
    fi
 }
 
-function delete_namespaced_resource() {
+function delete_resource_no_wait() {
 
-   # Doesn't zorch finalizers, just deletes.
+   # Doesn't zorch finalizers, just deletes.  Doesn't wait.
 
-   local ns="$1"
-   local kind_and_name="$2"
-   if ! oc -n "$ns" get "$kind_and_name" -o yaml > /dev/null 2>&1; then
-      return
+   local ns=""
+   local dash_lower_n_opt=()
+   if [[ "$1" == "-n" ]]; then
+      ns="$2"
+      dash_lower_n_opt=("$1" "$2")
+      shift 2
    fi
-
-   echo "Deleting $kind_and_name from namespace $ns."
-   do_chg_no_stderr oc -n "$ns" delete --ignore-not-found --timeout=15s "$kind_and_name"
-   if [[ $? -ne 0 ]]; then
-      echo "Warniing: Could not delete $kind_and_name from namespace $ns (timeout)."
-   fi
-}
-
-function delete_cluster_resource() {
-
-   # Doesn't zorch finalizers, just deletes.
-
    local kind_and_name="$1"
-   if ! oc get "$kind_and_name" -o yaml > /dev/null 2>&1; then
+
+   if ! oc "${dash_lower_n_opt[@]}" get "$kind_and_name" -o yaml > /dev/null 2>&1; then
       return
    fi
 
-   echo "Deleting $kind_and_name."
+   if [[ -n "$ns" ]]; then
+      msg "Deleting $kind_and_name from namespace $ns."
+   else
+      msg "Deleting $kind_and_name."
+   fi
 
-   do_chg_no_stderr oc  delete --ignore-not-found --timeout=15s "$kind_and_name"
+   do_chg_no_stderr oc "${dash_lower_n_opt[@]}" delete --ignore-not-found --wait=false "$kind_and_name"
    if [[ $? -ne 0 ]]; then
-      echo "Warniing: Could not delete $kind_and_name (timeout)."
-   fi
-}
 
-function delete_cluster_resource_no_wait() {
-
-   # Doesn't zorch finalizers, just deletes.
-   # (Intended for deletingn nsmaceps.)
-
-   local kind_and_name="$1"
-   if ! oc get "$kind_and_name" -o yaml > /dev/null 2>&1; then
-      return
-   fi
-
-   echo "Deleting $kind_and_name."
-   do_chg_no_stderr oc  delete --ignore-not-found --wait=false "$kind_and_name"
-}
-
-function nuke_namespaced_resource() {
-
-   local ns="$1"
-   local kind_and_name="$2"
-   if ! oc -n "$ns" get "$kind_and_name" -o yaml > /dev/null 2>&1; then
-      return
-   fi
-
-   echo "Deleting $kind_and_name from namespace $ns."
-
-   zorch_namespaced_finalizer "$ns" "$kind_and_name"
-
-   do_chg_no_stderr oc -n "$ns" delete --ignore-not-found --timeout=10s "$kind_and_name"
-   if [[ $? -ne 0 ]]; then
-      echo "Timeout waiting for deletion to occur, retrying."
-      zorch_finalizer -n "$ns" "$kind_and_name"
-      oc -n "$ns" delete --timeout=30s "$kind_and_name"
-      if [[ $? -ne 0 ]]; then
-         echo "Warning: Could not delete $kind_and_name from namespace $ns (timeout on retry)."
+      if [[ -n "$ns" ]]; then
+         msg "Warniing: Could not delete $kind_and_name from namespace $ns (timeout)."
+      else
+         msg "Warniing: Could not delete $kind_and_name (timeout)."
       fi
    fi
 }
 
-function nuke_cluster_resource() {
+function nuke_resource() {
 
+   local ns=""
+   local dash_lower_n_opt=()
+   if [[ "$1" == "-n" ]]; then
+      ns="$2"
+      dash_lower_n_opt=("$1" "$2")
+      shift 2
+   fi
    local kind_and_name="$1"
-   if ! oc get "$kind_and_name" -o yaml > /dev/null 2>&1; then
+
+   if ! oc "${dash_lower_n_opt[@]}" get "$kind_and_name" -o yaml > /dev/null 2>&1; then
       return
    fi
 
-   echo "Deleting $kind_and_name."
+   if [[ -n "$ns" ]]; then
+      msg "Deleting $kind_and_name from namespace $ns."
+   else
+      msg "Deleting $kind_and_name."
+   fi
 
-   zorch_finalizer "$kind_and_name"
-   do_chg_no_stderr oc  delete --ignore-not-found --timeout=10s "$kind_and_name"
+   zorch_finalizer "${dash_lower_n_opt[@]}" "$kind_and_name"
+
+   do_chg_no_stderr oc "${dash_lower_n_opt[@]}" delete --ignore-not-found --timeout=10s "$kind_and_name"
    if [[ $? -ne 0 ]]; then
-      echo "Timeout waiting for deletion to occur, retrying."
-      zorch_finalizer "$kind_and_name"
-      oc  delete --timeout=30s "$kind_and_name"
+      msg "Timeout waiting for deletion to occur, retrying."
+      zorch_finalizer "${dash_lower_n_opt[@]}" "$kind_and_name"
+      oc "${dash_lower_n_opt[@]}" delete --timeout=30s "$kind_and_name"
       if [[ $? -ne 0 ]]; then
-         echo "Warniing: Could not delete $kind_and_name (timeout after retry)."
+         if [[ -n "$ns" ]]; then
+            msg "Warning: Could not delete $kind_and_name from namespace $ns (timeout on retry)."
+         else
+            wmsg "Could not delete $kind_and_name (timeout on retry)."
+         fi
       fi
    fi
 }
@@ -319,7 +246,7 @@ function nuke_kind_from_namespace() {
    local inst_list=$(oc -n "$ns" get "$kind" -o name)
    if [[ $? -eq 0 ]]; then
       for inst in $inst_list; do
-         nuke_namespaced_resource "$ns" "$inst"
+         nuke_resource -n "$ns" "$inst"
       done
    fi
 }
@@ -361,7 +288,7 @@ function nuke_cluster_kinds() {
       local inst_list=$(oc get "$kind" -o name 2> /dev/null)
       if [[ "$?" -eq 0 ]]; then
          for inst in $inst_list; do
-            nuke_cluster_resource "$inst"
+            nuke_resource "$inst"
          done
       fi
   done
@@ -379,7 +306,7 @@ function nuke_cluster_kind_matching_name_pattern() {
    if [[ -n "$hits" ]]; then
       local line
       while read line; do
-         nuke_cluster_resource "$line"
+         nuke_resource "$line"
       done <<< "$hits"
    fi
 }
@@ -414,7 +341,7 @@ function nuke_kind_from_namespace_matching_name_patterns() {
       local hits=$(grep "$pattern" <<< "$inst_list")
       if [[ -n "$hits" ]]; then
          while read line; do
-            nuke_namespaced_resource "$ns" "$line"
+            nuke_resource -n "$ns" "$line"
          done <<< "$hits"
       fi
    done
@@ -434,7 +361,7 @@ function zorch_conversion_webhooks_from_crs_matching_kind_patterns() {
       for crd in $crd_list; do
          local conversion_strategy=$(oc get $crd -o 'jsonpath={.spec.conversion.strategy}')
          if [[ "$conversion_strategy" == "Webhook" ]]; then
-            echo "Removing conversion webhook from CRD ${crd#*/}."
+            msg "Removing conversion webhook from CRD ${crd#*/}."
             patch_resource "$crd" --type=merge -p '{"spec":{"conversion": null}}'
          fi
       done
@@ -459,7 +386,7 @@ function nuke_crs_matching_kind_patterns() {
       local crd_list=$(oc get crd -o name | grep "$pattern")
       local crd
       for crd in $crd_list; do
-         delete_cluster_resource_no_wait "$crd"
+         delete_resource_no_wait "$crd"
          # NB: This is a delete and not nke because the CRD has a finalizer that
          # is intended to coordinate with instance cleanup and we sure don't want
          # to get rid of the CRD if resource instances remain.
@@ -472,7 +399,7 @@ function nuke_crs_matching_kind_patterns() {
    fi
 
    # Give background instance deletion a chance to do its thing.
-   echo "Pausing a bit to allow instance deletion to occur."
+   msg "Pausing a bit to allow instance deletion to occur."
    sleep 10
 
    # Look throught the remaining CRDs matching tha patterns and categorize according
@@ -486,7 +413,7 @@ function nuke_crs_matching_kind_patterns() {
    for pattern in "${pattern_list[@]}"; do
       local crd_list=$(oc get crd -o name | grep "$pattern")
       for crd in $crd_list; do
-         echo "Note: Instances of CR $crd remain, maybe blocked by finalizers."
+         msg "Note: Instances of CR $crd remain, maybe blocked by finalizers."
          crd_name="${crd#*/}"
          crd_scope=$(oc get "$crd" -o jsonpath='{.spec.scope}')
          if [[ "$crd_scope" == "Cluster" ]]; then
@@ -516,7 +443,7 @@ function nuke_crs_matching_kind_patterns() {
             for inst in $inst_list; do
                inst_ns="${inst%/*}"
                inst_name="${inst#*/}"
-               nuke_namespaced_resource "$inst_ns" "$kind/$inst_name"
+               nuke_resource -n "$inst_ns" "$kind/$inst_name"
             done
          fi
       fi
@@ -535,7 +462,7 @@ function nuke_pods_from_namespace() {
       return
    fi
 
-   echo "Deleeting pods and higher-level apps from namespace $ns."
+   msg "Deleeting pods and higher-level apps from namespace $ns."
 
    local kinds="deployments statefulsets"
    local need_to_pause=0
@@ -543,71 +470,71 @@ function nuke_pods_from_namespace() {
    for kind in $kinds; do
       inst_list=$(oc -n "$ns" get "$kind" -o name)
       if [[ -n "$inst_list" ]]; then
-          echo "   ...Deleting $kind"
+          msg "   ...Deleting $kind"
           need_to_pause=1
           local inst
           for inst in $inst_list; do
-             nuke_namespaced_resource "$ns" "$inst"
+             nuke_resource -n "$ns" "$inst"
           done
       fi
    done
 
    if [[ $dry_run_mode -eq 0 ]]; then
       if [[ $need_to_pause -ne 0 ]]; then
-         echo "Pausing a bit."
+         msg "Pausing a bit."
          sleep 10
       fi
    fi
 
    local inst_list=$(oc -n "$ns" get pods -o name)
    if [[ -z "$inst_list" ]]; then
-      echo "...All pods are gone"
+      msg "...All pods are gone"
       return
    fi
 
    local inst_list=$(oc -n "$ns" get replicasets -o name)
    if [[ -n "$inst_list" ]]; then
-      echo "Deleeting replicasets explicitly."
+      msg "Deleeting replicasets explicitly."
 
       local inst
       for inst in $inst_list; do
-         nuke_namespaced_resource "$ns" "$inst"
+         nuke_resource -n "$ns" "$inst"
       done
 
       if [[ $dry_run_mode -eq 0 ]]; then
-         echo "Pausing a bit."
+         msg "Pausing a bit."
          sleep 10
       fi
    fi
 
    local inst_list=$(oc -n "$ns" get pods -o name)
    if [[ -z "$inst_list" ]]; then
-      echo "...All pods are gone"
+      msg "...All pods are gone"
       return
    fi
 
-   echo "Deleeting pods explicitly."
+   msg "Deleeting pods explicitly."
 
    local inst
    for inst in $inst_list; do
-      nuke_namespaced_resource "$ns" "$inst"
+      nuke_resource -n "$ns" "$inst"
    done
 
    if [[ $dry_run_mode -eq 0 ]]; then
-      echo "Pausing a bit."
+      msg "Pausing a bit."
       sleep 10
    fi
 
    inst_list=$(oc -n "$ns" get pods -o name)
    if [[ -z "$inst_list" ]]; then
-      echo "...All pods are gone"
+      msg "...All pods are gone"
    else
       if [[ $dry_run_mode -eq 0 ]]; then
-         echo "Warning: Pods still remain in namespace $ns, giving up on deleting them."
+         wmsg "Pods still remain in namespace $ns, giving up on deleting them."
       fi
    fi
 
-   echo "Deleting leases."
+   msg "Deleting leases."
    nuke_kind_from_namespace "lease.coordination.k8s.io" "$ns"
 }
 
@@ -664,7 +591,7 @@ function _nuke_workload_resources_from_namespaces() {
       local max_passes=3
    fi
 
-   echo "Removing $msg_nuking_what from $msg_from_where."
+   msg "Removing $msg_nuking_what from $msg_from_where."
    for pass in $(seq $max_passes); do
       local nuked_something=0
       local blurted_pass_msg=0
@@ -677,24 +604,24 @@ function _nuke_workload_resources_from_namespaces() {
             local inst_list=$(oc -n "$ns" get "$kind" -o name)
             if [[ -n "$inst_list" ]]; then
                if [[ $blurted_pass_msg -eq 0 ]]; then
-                  echo "Performing pass $pass..."
+                  msg "Performing pass $pass..."
                   blurted_pass_msg=1
                fi
                if [[ $blurted_kind_msg -eq 0 ]]; then
-                   echo "...Deleting all $kind"
+                   msg "...Deleting all $kind"
                    blurted_kind_msg=1
                fi
                nuked_something=1
                local inst
                for inst in $inst_list; do
-                  nuke_namespaced_resource "$ns" "$inst"
+                  nuke_resource -n "$ns" "$inst"
                done
             fi
          done
       done
       if [[ $nuked_something -ne 0 ]]; then
          if [[ $dry_run_mode -eq 0 ]]; then
-            echo "...Pausing a bit"
+            msg "...Pausing a bit"
             sleep 10
          fi
       else
@@ -704,12 +631,12 @@ function _nuke_workload_resources_from_namespaces() {
    done
 
    if ! _workload_resources_exist_in_namespaces "$ns_list_name" "$kinds"; then
-      echo "All $msg_nuking_what are gone."
+      msg "All $msg_nuking_what are gone."
       return 0
    else
 
       if [[ $dry_run_mode -eq 0 ]]; then
-         echo "Warning: $msg_nuking_what remain after $max_passes passes, giving up."
+         wmsg "$msg_nuking_what remain after $max_passes passes, giving up."
          return 1
       else
          return 0
@@ -742,7 +669,7 @@ function nuke_olm_operator_from_namespace() {
          local sub_pkg=$(extract_delimited_field 1 "/" "$line")
          local sub_ns=$(extract_delimited_field 2 "/" "$line")
          local sub_name=$(extract_delimited_field 3 "/" "$line")
-         delete_namespaced_resource "$sub_ns" "sub/$sub_name"
+         delete_resource -n "$sub_ns" "sub/$sub_name"
       done <<< "$t"
    fi
 
@@ -753,7 +680,7 @@ function nuke_olm_operator_from_namespace() {
          local csv_pkg=$(extract_delimited_field 1 "/" "$line")
          local csv_ns=$(extract_delimited_field 2 "/" "$line")
          local csv_name=$(extract_delimited_field 3 "/" "$line")
-         delete_namespaced_resource  "$csv_ns" "csv/$csv_name"
+         delete_resource -n "$csv_ns" "csv/$csv_name"
       done <<< "$t"
    fi
 }
@@ -761,7 +688,7 @@ function nuke_olm_operator_from_namespace() {
 function delete_namespace() {
 
    local ns="$1"
-   delete_cluster_resource "ns/$ns"
+   delete_resource "ns/$ns"
 }
 
 function delete_namespaces() {
@@ -864,7 +791,7 @@ function add_agent_ocp_monitoring_servicemonitors() { _add_to_list agent_ocp_mon
 
 function nuke_webhooks_and_api_services() {
 
-   echo "Disabling hub validating/mutating webhooks and API services."
+   msg "Disabling hub validating/mutating webhooks and API services."
 
    nuke_cluster_kind_matching_name_patterns "mutatingwebhookconfiguration" mutating_webhooks
    nuke_cluster_kind_matching_name_patterns "validatingwebhookconfiguration" validating_webhooks
@@ -874,7 +801,7 @@ function nuke_webhooks_and_api_services() {
 
 function nuke_conversion_webhooks() {
 
-   echo "Disabling hub conversion webhooks."
+   msg "Disabling hub conversion webhooks."
 
    zorch_conversion_webhooks_from_crs_matching_kind_patterns sub_operator_operand_kinds
    zorch_conversion_webhooks_from_crs_matching_kind_patterns hub_cr_kinds
@@ -882,7 +809,7 @@ function nuke_conversion_webhooks() {
 
 function nuke_the_top_operators() {
 
-   echo "Removing top-level hub OLM operators."
+   msg "Removing top-level hub OLM operators."
 
    local mch_op_ns="${MCH_SUB_NS:-${MCH_OP_NS:-${MCH_NS}}}"
    nuke_olm_operator_from_namespace "$MCH_PKG_NAME" "$mch_op_ns"
@@ -896,7 +823,7 @@ function nuke_sub_operator_operands() {
    # This deletes the CR instances that define operands that are monigored
    # and reconsiled by sub-operators integrated into the MCE or MCH package.
 
-   echo "Removing hub sub-operator operand resources and CRDs."
+   msg "Removing hub sub-operator operand resources and CRDs."
 
    nuke_crs_matching_kind_patterns sub_operator_operand_kinds
 }
@@ -908,7 +835,7 @@ function nuke_sub_operator_installed_operators() {
 
    # TODO: We probably need to prevent the managing sub-operator from rereconsiling these?
 
-   echo "Removing hub sub-operator installed OLM operators."
+   msg "Removing hub sub-operator installed OLM operators."
 
    local op_id
    for op_id in "${sub_operator_installed_operators[@]}"; do
@@ -922,10 +849,10 @@ function nuke_all_the_hub_pods() {
 
    # Gets rid of pods in all known hub namespaces
 
-   echo "Deleting pods from top-level hub namespaces."
+   msg "Deleting pods from top-level hub namespaces."
    nuke_pods_from_namespaces hub_top_pod_namespaces "top pod namespaces"
 
-   echo "Deleting pods from other hub namespaces."
+   msg "Deleting pods from other hub namespaces."
    nuke_pods_from_namespaces hub_pod_namespaces "other pod namespaces"
 }
 
@@ -939,7 +866,7 @@ function nuke_managed_cluster() {
    done
 
    delete_namespace "$mc_name"
-   nuke_cluster_resource "managedcluster/$mc_name"
+   nuke_resource "managedcluster/$mc_name"
 }
 
 function nuke_managed_clusters() {
@@ -949,12 +876,12 @@ function nuke_managed_clusters() {
       return
    fi
 
-   echo "Removing all managed clusters."
+   msg "Removing all managed clusters."
 
    local inst
    for inst in $inst_list; do
       local mc_name="${inst#*/}"
-      echo "Removing managed cluster $mc_name."
+      msg "Removing managed cluster $mc_name."
       nuke_managed_cluster "$mc_name"
    done
 }
@@ -970,11 +897,11 @@ function nuke_managed_cluster_remnants() {
       return
    fi
 
-   echo "Cleaning up namespaces that are remnants of a managed cluster."
+   msg "Cleaning up namespaces that are remnants of a managed cluster."
    local n
    for ns in "$ns_list"; do
       ns_name="${ns#*/}"
-      echo "Removing remnant managed-cluster namespace $ns_name."
+      msg "Removing remnant managed-cluster namespace $ns_name."
       nuke_managed_cluster "$ns_name"
    done
 }
@@ -990,7 +917,7 @@ function run_hub_special_resource_patchers() {
 
 function nuke_hub_cr_kinds() {
 
-   echo "Removing hub custom resources and CRDs."
+   msg "Removing hub custom resources and CRDs."
    nuke_crs_matching_kind_patterns hub_cr_kinds
 }
 
@@ -1016,7 +943,7 @@ function nuke_cluster_roles() {
             while read line; do
                local role_ref=$(extract_delimited_field 1 "/" "$line")
                local binding_name=$(extract_delimited_field 2 "/" "$line")
-               delete_cluster_resource "clusterrolebinding/$binding_name"
+               delete_resource "clusterrolebinding/$binding_name"
             done <<< "$hits"
          fi
       done
@@ -1027,7 +954,7 @@ function nuke_cluster_roles() {
 
 function nuke_hub_cluster_roles() {
 
-   echo "Deleting hub cluster roles and bindings to them."
+   msg "Deleting hub cluster roles and bindings to them."
    nuke_cluster_roles hub_cluster_roles
 }
 
@@ -1046,7 +973,7 @@ function nuke_cluster_role_bindings() {
             local line
             while read line; do
                local binding_name=$(extract_delimited_field 1 "/" "$line")
-               delete_cluster_resource "clusterrolebinding/$binding_name"
+               delete_resource "clusterrolebinding/$binding_name"
             done <<< "$hits"
          fi
       done
@@ -1055,22 +982,22 @@ function nuke_cluster_role_bindings() {
 
 function nuke_hub_cluster_role_bindings() {
 
-   echo "Deleting hub cluster role bindings."
+   msg "Deleting hub cluster role bindings."
    nuke_cluster_role_bindings hub_cluster_role_bindings
 }
 
 function nuke_hub_console_plugins() {
 
-   echo "Deleting hub console plugins."
+   msg "Deleting hub console plugins."
 
    for plugin in "${hub_console_plugins[@]}"; do
-      nuke_cluster_resource "consoleplugins.console.openshift.io/$plugin"
+      nuke_resource "consoleplugins.console.openshift.io/$plugin"
   done
 }
 
 function nuke_hub_ocp_monitoring_additions() {
 
-   echo "Deleting hub addiitons made to openshift-monitoring namespace."
+   msg "Deleting hub addiitons made to openshift-monitoring namespace."
 
    nuke_kind_from_namespace_matching_name_patterns "servicemonitor" \
       "openshift-monitoring" hub_ocp_monitoring_servicemonitors
@@ -1080,13 +1007,13 @@ function nuke_hub_ocp_monitoring_additions() {
 
 function nuke_top_operand_kinds() {
 
-   echo "Removing hub top-operator operand resources and CRDs."
+   msg "Removing hub top-operator operand resources and CRDs."
    nuke_crs_matching_kind_patterns top_operator_operand_kinds
 }
 
 function delete_hub_namespaces() {
 
-   echo "Deleting hub namespaces."
+   msg "Deleting hub namespaces."
 
    delete_namespaces hub_top_pod_namespaces
    delete_namespaces hub_pod_namespaces
@@ -1097,13 +1024,13 @@ function nuke_all_the_agent_pods() {
 
    # Gets rid of pods that will exist of the hub cluster is imported.
 
-   echo "Deleting pods from agent namespaces."
+   msg "Deleting pods from agent namespaces."
    nuke_pods_from_namespaces agent_pod_namespaces "agent pod namespaces"
 }
 
 function nuke_agent_webhooks_and_api_services() {
 
-   echo "Disabling agent API services."
+   msg "Disabling agent API services."
 
    nuke_cluster_kind_matching_name_patterns "apiservice" agent_api_services
 }
@@ -1118,19 +1045,19 @@ function run_agent_special_resource_patchers() {
 
 function nuke_agent_cr_kinds() {
 
-   echo "Removing agent custom resources and CRDs."
+   msg "Removing agent custom resources and CRDs."
    nuke_crs_matching_kind_patterns agent_cr_kinds
 }
 
 function nuke_agent_cluster_roles() {
 
-   echo "Deleting agent cluster roles and bindings to them."
+   msg "Deleting agent cluster roles and bindings to them."
    nuke_cluster_roles agent_cluster_roles
 }
 
 function delete_agent_namespaces() {
 
-   echo "Deleting agent namespaces."
+   msg "Deleting agent namespaces."
 
    delete_namespaces agent_pod_namespaces
    delete_namespaces hub_other_namespaces
@@ -1138,7 +1065,7 @@ function delete_agent_namespaces() {
 
 function nuke_agent_ocp_monitoring_additions() {
 
-   echo "Deleting agent addiitons made to openshift-monitoring namespace."
+   msg "Deleting agent addiitons made to openshift-monitoring namespace."
 
    nuke_kind_from_namespace_matching_name_patterns "servicemonitor" \
       "openshift-monitoring" agent_ocp_monitoring_servicemonitors
@@ -1258,7 +1185,7 @@ function cluster_manager_patch_default_mcs() {
 
    local mcs="managedclustersets.cluster.open-cluster-management.io"
    if oc get "$mcs/default" -o name > /dev/null 2>&1; then
-      echo "Patching default ManagedClusterSet."
+      msg "Patching default ManagedClusterSet."
       patch_resource "managedclusterset/default" \
          --type=merge -p '{"spec": {"clusterSelector": {"selectorType": "LabelSelector"}}}'
    fi
@@ -1434,10 +1361,10 @@ function observability_disable_user_workload_monitoring() {
 
    # Used for both huub and agent cleanup.
 
-   echo "Disabling openshift user-workload monitoring."
+   msg "Disabling openshift user-workload monitoring."
    patch_resource openshift-monitoring "cm/cluster-monitoring-config" \
       --type=merge -p '{"data": {"config.yaml": "enableUserWorkload: false\n"}}'
-   delete_cluster_resource "clusterrolebinding/thanos-ruler-monitoring"
+   delete_resource "clusterrolebinding/thanos-ruler-monitoring"
 }
 
 add_hub_components search
@@ -1593,6 +1520,104 @@ function identify_agent_hypershift_things() {
 
 
 # Main:
+
+# Arg processing.
+
+opt_flags="w:dadyz"
+
+nuking_confirme=0
+hub_or_agent="both"
+nuke_dependencies=0
+dry_run_mode=0
+
+while getopts "$opt_flags" OPTION; do
+
+   if [[ $OPTARG == "-"* ]]; then
+      # We don't expect any option args that start with a dash, so getopt is likely
+      # consuming the next option as if it were this options argument because the
+      # argument is missing in the invocation.
+
+      >&2 msg "Error: Argument for -$OPTION option is missing."
+      exit 1
+   fi
+
+   case "$OPTION" in
+      d) dry_run_mode=1
+         ;;
+      w) hub_or_agent="$OPTARG"
+         ;;
+      y) nuking_confirmed=1
+         ;;
+      z) nuke_dependencies=1
+         ;;
+      ?) exit 1
+         ;;
+   esac
+done
+shift "$(($OPTIND -1))"
+
+do_hub_stuff=0
+do_agent_stuff=0
+
+if [[ "$hub_or_agent" == "agent" ]]; then
+   msg "PErforming cleanup of ACM/MCE agent components."
+   do_agent_stuff=1
+elif [[ "$hub_or_agent" == "hub" ]]; then
+   msg "PErforming cleanup of ACM/MCE hub components."
+   do_hub_stuff=1
+elif [[ "$hub_or_agent" == "both" ]]; then
+   msg "PErforming cleanup of ACM/MCE hub and agent components."
+   do_agent_stuff=1
+   do_hub_stuff=1
+else
+   msg "Unrecognized argument for -w flag: $hub_or_agent."
+   exit 5
+fi
+
+if [[ $nuke_dependencies -ne 0 ]]; then
+
+   # TODO: Allow these to be requested individually.
+
+   msg "Will also perform cleanup the following depenedncies:"
+   msg "- Removing Red Hat OADP resources"
+   msg "- Removing Valero reources"
+   msg "- Removing selected Prometheus dependencies"
+   msg "- Disabling user-workload monitoring"
+   nuke_velero=1
+   nuke_oadp=1
+   nuke_prometheus=1
+   nuke_user_resource_monitoring=1
+fi
+
+if [[ $nuking_confirmed -eq 0 ]] && [[ $dry_run_mode -eq 0 ]]; then
+   msg ""
+   msg "WARNING:"
+   msg ""
+   msg "This script performs an agressive cleanup of typical remnants of an ACM"
+   msg "or MCE hub or agent install.  Its intended to be sed to cleanup after a"
+   msg "failed install or uninstall in order to prepare the OCP cluster ffor a"
+   msg "new install attempt."
+   msg ""
+   msg "USE  OF THIS SCRIPT WILL RESULT IN THE DELETION/LOSS OF ALL ACM OR MCE"
+   msg "CUSTOM RESOURCE INSTANCES AND OTHER CONFIGURATION DATA.  THIS DATA WILL"
+   msg "BE DELETED WITHOUT PERFORMING ANY KIND OF BACKUP FIRST."
+   msg ""
+   msg ""
+   msg "BESIDES REMOVING RESOURCES THAT ARE SPECIFIC TO ACM OR MCE, THIS SCRIPT"
+   msg "WILL OPTONALLY ALSO REMOVE SOME DEPENDENT OPERATORS AND RESOURCE TYPES"
+   msg "THAT ARE INStALLED BY ACM OR MCE AND ASSUMED TO BE USED BY ACM OR MCE ONLY."
+   msg "THIS CLEANUP ACTION COULD AFFECT OTHER APPLICATIONS OR OPERATORS INSTALLED"
+   msg "ON THE SAME CLUSTER AS ACM OR MCE IF THOSE OTHER APPLICATIONS OR OPERATORS"
+   msg "RELY ON THE REMOVED OR RECONFIGURED THINGS.  PLEASE REFER TO COMMENTS AT"
+   msg "THE TOP OF THE SCRIPT FOR A LIST OF RISKS IN THIS CATEGORY."
+   msg ""
+   msg "YOU HAVE BEEN WARNED.  :-)"
+   msg ""
+   msg "If you wish to proceed, invoke this script specifying the -y option to"
+   msg "acknowledge these risks and proceeed with cleanup."
+
+   exit 5
+fi
 
 # Find signs of the MCE and MCH operators and/or operand instances.
 
