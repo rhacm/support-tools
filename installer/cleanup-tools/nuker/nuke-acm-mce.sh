@@ -55,11 +55,11 @@ function msg() {
    echo "$@"
 }
 
-funciton wmsg() {
+function wmsg() {
    echo "Warning:" "$@"
 }
 
-funciton emsg() {
+function emsg() {
    echo "Error:" "$@"
 }
 
