@@ -738,6 +738,8 @@ agent_cr_kinds=()
 agent_ocp_monitoring_promrules=()
 agent_ocp_monitoring_servicemonitors=()
 
+agent_mutating_webhooks=()
+
 function _add_to_list() {
    local -n the_list="$1"
    local the_component="$2"
@@ -784,6 +786,8 @@ function add_agent_cluster_roles()                  { _add_to_list agent_cluster
 
 function add_agent_ocp_monitoring_promrules()       { _add_to_list agent_ocp_monitoring_promrules "$@"; }
 function add_agent_ocp_monitoring_servicemonitors() { _add_to_list agent_ocp_monitoring_servicemonitors "$@"; }
+
+function add_agent_mutating_webhooks()              { _add_to_list agent_mutating_webhooks "$@"; }
 
 #---------------------------#
 # Resource nuking functions #
@@ -1030,8 +1034,9 @@ function nuke_all_the_agent_pods() {
 
 function nuke_agent_webhooks_and_api_services() {
 
-   msg "Disabling agent API services."
+   msg "Disabling agent mutating webhooks and API services."
 
+   nuke_cluster_kind_matching_name_patterns "mutatingwebhookconfiguration" agent_mutating_webhooks
    nuke_cluster_kind_matching_name_patterns "apiservice" agent_api_services
 }
 
@@ -1304,8 +1309,12 @@ function identify_hub_grc_things() {
    add_hub_cluster_roles "$component" "open-cluster-management:governance-policy-framework-crd"  # 2.7
    add_hub_cluster_roles "$component" "open-cluster-management:governance-policy-framework"      # 2.8
 
+   # Until ACM 2.8 (no longer created in ACM 2.9+):
    add_hub_ocp_monitoring_servicemonitors "$component" "ocm-grc-policy-propagator-metrics"
    add_hub_ocp_monitoring_promrules       "$component" "ocm-grc-policy-propagator-metrics"
+
+   # Since ACM 2.9:
+   add_validating_webhooks "$component" "propagator-webhook-validating-configuration"
 }
 
 add_hub_components mco
@@ -1329,12 +1338,15 @@ function identify_hub_mco_things() {
    add_hub_cluster_roles         "$component" "openshift-adp-metrics-reader"   # XXX: Is this really ours?
    add_hub_cluster_role_bindings "$component" "metrics-collector-view"
 
+   # Until ACM 2.8 (no longer created in ACM 2.9+):
    add_hub_ocp_monitoring_servicemonitors "$component" "observability-observatorium-"
    add_hub_ocp_monitoring_servicemonitors "$component" "observability-thanos-"
 
    # TODO: Move to an insighs component:
 
    add_hub_cr_kinds                       "$component" "policyreports.wgpolicyk8s.io"
+
+   # Until ACM 2.8 (no longer created in ACM 2.9+):
    add_hub_ocp_monitoring_servicemonitors "$component" "acm-insights"
 
    # Added for ACM 2.8:
@@ -1362,7 +1374,7 @@ function observability_disable_user_workload_monitoring() {
    # Used for both huub and agent cleanup.
 
    msg "Disabling openshift user-workload monitoring."
-   patch_resource openshift-monitoring "cm/cluster-monitoring-config" \
+   patch_resource -n "openshift-monitoring" "cm/cluster-monitoring-config" \
       --type=merge -p '{"data": {"config.yaml": "enableUserWorkload: false\n"}}'
    delete_resource "clusterrolebinding/thanos-ruler-monitoring"
 }
@@ -1378,9 +1390,10 @@ function identify_hub_search_things() {
 
    # Added in ACM 2.8:
    add_hub_cluster_roles                  "$component" "search"
+
+   # Until ACM 2.8 (no longer created in ACM 2.9+):
    add_hub_ocp_monitoring_servicemonitors "$component" "search-api-monitor"
    add_hub_ocp_monitoring_servicemonitors "$component" "search-indexer-monitor"
-
 }
 
 add_hub_components cluster_backup
@@ -1442,6 +1455,10 @@ function identify_agent_foundation_things() {
    add_agent_cr_kinds       "$componnet" "klusterlets.operator.open-cluster-management.io"
    add_agent_cr_kinds       "$componnet" ".work.open-cluster-management.io"
 
+   # Since MCE 2.4:
+   add_agent_cr_kinds       "$component" "klusterletconfigs.config.open-cluster-management.io"
+
+
    add_agent_cluster_roles  "$component" "klusterlet"
    add_agent_cluster_roles  "$component" "open-cluster-management:klusterlet-addon-"
    add_agent_cluster_roles  "$component" "open-cluster-management:klusterlet-registration:"
@@ -1483,8 +1500,20 @@ function identify_agent_grc_things() {
 
    add_agent_cr_kinds "$component" ".policy.open-cluster-management.io"
 
+   # Until ACM 2.8 (no longer created in ACM 2.9+):
    add_agent_ocp_monitoring_servicemonitors "$component" "ocm-config-policy-controller-open-cluster-management-agent-addon-metrics"
    add_agent_ocp_monitoring_servicemonitors "$component" "ocm-governance-policy-framework-open-cluster-management-agent-addon-metrics"
+}
+
+add_agent_components cluster_permissions
+function identify_agent_cluster_permissions_things() {
+
+   # Since ACM 2.9
+   # TBD: Is this better classified as a GRC thing?
+
+   local component="cluster_permissions"
+
+   add_agent_cr_kinds "$component" "clusterpermissions.rbac.open-cluster-management.io"
 }
 
 add_agent_components alc
@@ -1515,7 +1544,11 @@ function identify_agent_hypershift_things() {
 
    add_agent_cr_kinds "$component" "clusterclaims.cluster.open-cluster-management.io"  # Is this really due to hypershift?
 
+   # Until MCE 2.3 (no longer created in MCE 2.4+):
    add_agent_ocp_monitoring_servicemonitors "$component" "acm-hypershift-addon-agent-metrics"
+
+   # Since MCE 2.4:
+   add_agent_mutating_webhooks "$component" "hypershift.openshift.io"
 }
 
 
