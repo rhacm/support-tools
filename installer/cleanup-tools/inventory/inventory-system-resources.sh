@@ -53,6 +53,7 @@ cluster_resource_kinds+=("apiservices")
 cluster_resource_kinds+=("clusterroles")
 cluster_resource_kinds+=("clusterrolebindings")
 cluster_resource_kinds+=("consoleplugins")
+cluster_resource_kinds+=("storageversionmigrations")
 
 # TODO: Add consoleplugin
 
