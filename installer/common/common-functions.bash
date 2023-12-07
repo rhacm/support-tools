@@ -63,6 +63,33 @@ function extract_delimited_field() {
    cut -d"$delim" -f"$field_nr" <<< "$field_string"
 }
 
+
+function find_sub_for_csv() {
+
+   # Find the OLM subscription that is the "owner" of a CSV.
+   # ("Owner" is in quotes here because the CSV doesn't not have an ownerRef to
+   # the sub, but the "owning" sub will listsed the CSV in its status.currentCSV property.)
+
+   local csv_name="$1"
+   local in_ns="$2"
+
+   local jp=$(jsonpath_range_over_items ".status.currentCSV" ".metadata.namespace" ".metadata.name")
+   local t=$(oc -n "$in_ns" get "$olm_sub_kind" -o jsonpath="$jp")
+
+   if [[ -z "$t" ]]; then
+      return
+   fi
+
+   while read line; do
+      local csv=$(extract_delimited_field 1 "/" "$line")
+      if [[ "$csv" == "$csv_name" ]]; then
+         local ns=$(extract_delimited_field 2 "/" "$line")
+         local sub_name=$(extract_delimited_field 3 "/" "$line")
+         echo "$ns/$sub_name"
+      fi
+   done <<< "$t"
+}
+
 function find_subs_for_operator() {
 
    # Find the OLM subscriptions to an operator under either its released-product or
@@ -197,6 +224,8 @@ function find_operator_by_sub_or_csv() {
    return
 
 }
+
+
 
 function find_singleton_cluster_resource() {
 
