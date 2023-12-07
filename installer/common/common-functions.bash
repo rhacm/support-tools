@@ -225,8 +225,6 @@ function find_operator_by_sub_or_csv() {
 
 }
 
-
-
 function find_singleton_cluster_resource() {
 
    # Find the (expected) singleton instance of a cluster-scoped resource. If found,
