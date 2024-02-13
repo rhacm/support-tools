@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# THIS IS A WORK IN PROGRESS.
-
-# Copyright (c) 2023 Red Hat, Inc.
+# Copyright (c) 2023-2024 Red Hat, Inc.
 #
 # Author: joeg-pro
 #
@@ -39,6 +37,12 @@
 # - Bash V4
 # - oc
 # - cut
+#
+# Assumes:
+# - An authenticated session to the ACM/MCE hub cluster exists under a userid that has
+#   cluster-admin authority.  This can be done either by having done an "oc login" or by
+#   setting the KUBECONFIG environment variable to point to an appropriate kubeconfig file.
+#
 
 my_dir=$(dirname $(readlink -f "$0"))
 
