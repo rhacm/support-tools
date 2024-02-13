@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Copyright (c) 2023 Red Hat, Inc.
+# Copyright (c) 2023, 2024 Red Hat, Inc.
 
-# Produces an inventory (recorded in a subdirectory) of selected cluster-scoped
-# resources that are created by an MCE or ACM hub instnace.  Intended to be used
+# Produces an inventory (recorded in a subdirectory) of all (or most) resources
+# on a Openshift Container Platform (OCP) cluster.  This is intended to be used
 # to do a before/after anaysis to catch "leaked" resources.
 #
 # An example usage sequence might be:
@@ -25,14 +25,8 @@
 # - sort
 #
 # Notes:
-#
-# - The list of resource types inventoried is based on ACM 2.7 and 2.8 (and corresp.
-#   MCE 2.2 and 2.3) and may need to be updated for subsequent releases.
-#
-# - Also, we have not yet verified that this list is complete/comprehensive but it
-#   is at least a very good first stab.
-#
-# - This script makes no attempt to identify cluster resources that exist but are
+##
+# - This script makes no attempt to identify resources that exist but are
 #   modified by ACM or MCE.  (One known example of such a moifications is the
 #   cluster-monitoring-config ConfigMap in the openshift-monitoring namespace.)
 
@@ -42,7 +36,8 @@ rm -rf "$output_dir"
 mkdir -p "$output_dir"
 cd $output_dir
 
-# Gather an inveotry of some important cluster-level resources
+# Start with an explicit list of cluster/namespaced resources from
+# built-in Kube APIs.
 
 cluster_resource_kinds=()
 cluster_resource_kinds+=("namespaces")
@@ -52,8 +47,43 @@ cluster_resource_kinds+=("mutatingwebhookconfigurations")
 cluster_resource_kinds+=("apiservices")
 cluster_resource_kinds+=("clusterroles")
 cluster_resource_kinds+=("clusterrolebindings")
-cluster_resource_kinds+=("consoleplugins")
-cluster_resource_kinds+=("storageversionmigrations")
+
+namespaced_resource_kinds=()
+namespaced_resource_kinds+=("configmaps")
+namespaced_resource_kinds+=("secrets")
+namespaced_resource_kinds+=("roles")
+namespaced_resource_kinds+=("rolebindings")
+
+namespaced_resource_kinds+=("routes")
+
+namespaced_resource_kinds+=("pods")
+namespaced_resource_kinds+=("deployments")
+anamespaced_resource_kinds+=("replicasets")
+namespaced_resource_kinds+=("statefulsets")
+namespaced_resource_kinds+=("daemonsets")
+namespaced_resource_kinds+=("jobs")
+namespaced_resource_kinds+=("cronjobs")
+
+namespaced_resource_kinds+=("persistentvolumes")
+namespaced_resource_kinds+=("persistentvolumeclaims")
+
+# Add in all CRD kinds:
+
+cluster_scoped_crds=$(oc get "crd" -A \
+   -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
+   | grep "^Cluster " | cut -d' ' -f2 | sort)
+for crd in $cluster_scoped_crds; do
+   cluster_resource_kinds+=("$crd")
+done
+
+namespaced_crds=$(oc get "crd" -A \
+   -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
+   | grep "^Namespaced " | cut -d' ' -f2 | sort)
+for crd in $namespaced_crds; do
+   namespaced_resource_kinds+=("$crd")
+done
+
+# Collect lists of cluster-scoped resources:
 
 for kind in ${cluster_resource_kinds[@]}; do
    oc get "$kind" \
@@ -61,12 +91,12 @@ for kind in ${cluster_resource_kinds[@]}; do
       | sort > "$kind"
 done
 
-# Monitoring COnfig in openshift-monitoring
+# Collect lists of namespace-scoped resources:
 
-monitoring_crds=$(oc get crd \
-   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
-   | grep "monitoring\.coreos\.com" | sort)
-for crd in $monitoring_crds; do
-   oc -n "openshift-monitoring" get "$crd" -o name | sort >> openshift-monitoring
+for kind in ${namespaced_resource_kinds[@]}; do
+   oc get "$kind" -A \
+      -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+      | sort > "$kind"
 done
+
 
