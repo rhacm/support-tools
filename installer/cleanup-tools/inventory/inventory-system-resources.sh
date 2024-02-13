@@ -55,8 +55,6 @@ cluster_resource_kinds+=("clusterrolebindings")
 cluster_resource_kinds+=("consoleplugins")
 cluster_resource_kinds+=("storageversionmigrations")
 
-# TODO: Add consoleplugin
-
 for kind in ${cluster_resource_kinds[@]}; do
    oc get "$kind" \
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
