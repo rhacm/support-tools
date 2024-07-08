@@ -86,6 +86,7 @@ done
 # Collect lists of cluster-scoped resources:
 
 for kind in ${cluster_resource_kinds[@]}; do
+   echo "Gathering lists of $kind."
    oc get "$kind" \
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
       | sort > "$kind"
@@ -94,6 +95,7 @@ done
 # Collect lists of namespace-scoped resources:
 
 for kind in ${namespaced_resource_kinds[@]}; do
+   echo "Gathering lists of $kind."
    oc get "$kind" -A \
       -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
       | sort > "$kind"
