@@ -67,20 +67,31 @@ namespaced_resource_kinds+=("cronjobs")
 namespaced_resource_kinds+=("persistentvolumes")
 namespaced_resource_kinds+=("persistentvolumeclaims")
 
-# Add in all CRD kinds:
+# Exclude some CRDs that are noisy (often chaning) and not relevant to us.
+
+declare -A excluded_crd_kinds
+excluded_crd_kinds["apirequestcounts.apiserver.openshift.io"]=1
+
+
+# Add in all CRD kinds that are not excluded:
 
 cluster_scoped_crds=$(oc get "crd" -A \
    -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
    | grep "^Cluster " | cut -d' ' -f2 | sort)
 for crd in $cluster_scoped_crds; do
-   cluster_resource_kinds+=("$crd")
+   if [[ "${excluded_crd_kinds[$crd]}" -eq 0 ]]; then
+      cluster_resource_kinds+=("$crd")
+   fi
 done
 
 namespaced_crds=$(oc get "crd" -A \
    -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
    | grep "^Namespaced " | cut -d' ' -f2 | sort)
 for crd in $namespaced_crds; do
-   namespaced_resource_kinds+=("$crd")
+
+   if [[ "${excluded_crd_kinds[$crd]}" -eq 0 ]]; then
+      namespaced_resource_kinds+=("$crd")
+   fi
 done
 
 # Collect lists of cluster-scoped resources:
