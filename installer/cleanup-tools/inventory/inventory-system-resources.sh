@@ -58,7 +58,7 @@ namespaced_resource_kinds+=("routes")
 
 namespaced_resource_kinds+=("pods")
 namespaced_resource_kinds+=("deployments")
-anamespaced_resource_kinds+=("replicasets")
+namespaced_resource_kinds+=("replicasets")
 namespaced_resource_kinds+=("statefulsets")
 namespaced_resource_kinds+=("daemonsets")
 namespaced_resource_kinds+=("jobs")
@@ -71,7 +71,8 @@ namespaced_resource_kinds+=("persistentvolumeclaims")
 
 declare -A excluded_crd_kinds
 excluded_crd_kinds["apirequestcounts.apiserver.openshift.io"]=1
-
+excluded_crd_kinds["cnsvolumeoperationrequests.cns.vmware.com"]=1
+excluded_crd_kinds["cnsvspherevolumemigrations.cns.vmware.com"]=1
 
 # Add in all CRD kinds that are not excluded:
 

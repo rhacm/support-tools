@@ -943,14 +943,15 @@ function nuke_cluster_roles() {
    local t=$(oc get "clusterrolebindings" -o jsonpath="$jp")
    if [[ -n "$t" ]]; then
 
-      # NB: This is a little sloppy, as we're not restricting the match to just the role-ref.
-      # On the other hand, the sloppiness might benefit us as it might also ferret out a
-      # role binding to a Openshift-defined role if the role-binding name matches the
-      # nameing pattern of one of our roles.
+      # NB: This is a little sloppy, as we're not restricting the match to just the
+      # role-ref by using a pattern that is anchored at the end with the slash that
+      # separates the role-ref from the binding name. Well, for that matter, we're
+      # also not considering that the pattern might have dots that aren't escaped
+      # so they are interpreted as dots.
 
       local pattern
-      for pattern in "${patterns[@]}"; do
-         local hits=$(grep "$pattern" <<< "$t")
+      for pattern in ${patterns[@]}; do
+         local hits=$(grep "^$pattern" <<< "$t")
          if [[ -n "$hits" ]]; then
             local line
             while read line; do
@@ -992,14 +993,15 @@ function nuke_roles() {
 
       if [[ -n "$t" ]]; then
 
-         # NB: This is a little sloppy, as we're not restricting the match to just the role-ref.
-         # On the other hand, the sloppiness might benefit us as it might also ferret out a
-         # role binding to a Openshift-defined role if the role-binding name matches the
-         # nameing pattern of one of our roles.
+         # NB: This is a little sloppy, as we're not restricting the match to just the
+         # role-ref by using a pattern that is anchored at the end with the slash that
+         # separates the role-ref from the binding name. Well, for that matter, we're
+         # also not considering that the pattern might have dots that aren't escaped
+         # so they are interpreted as dots.
 
          local pattern
-         for pattern in "${nuke_role_patterns[@]}"; do
-            local hits=$(grep "$pattern" <<< "$t")
+         for pattern in ${nuke_role_patterns[@]}; do
+            local hits=$(grep "^$pattern" <<< "$t")
             if [[ -n "$hits" ]]; then
                local line
                while read line; do
@@ -1423,8 +1425,8 @@ function identify_hub_mco_things() {
 
    # Added for ACM 2.8:
    #
-   # TODO: These are created, but it seems that happens as a result of ACM enabling
-   # user-workload monitoring by changing the settings in the cluster-monitoring-config
+   # TODO: These are created, it seems, as a result of ACM enabling user-workload
+   # monitoring by changing the settings in the cluster-monitoring-config
    # ConfigMap in the openshift-monitoring namespace.
 
    # add_hub_cluster_roles         "$component"  "prometheus-user-workload"
@@ -1433,7 +1435,7 @@ function identify_hub_mco_things() {
    # add_hub_cluster_role_bindings "$component"  "thanos-ruler-monitoring"
 
    # These will go away if you reconfigure to turn off user-workload monitoring.
-   # But we have no way to know that ACM is the thing that turned it on and is the
+   # But we have no way to know if ACM is the thing that turned it on and is the
    # only thing on the cluster that has an interest in having it on.
 
    if [[ $nuke_user_resource_monitoring -ne 0 ]]; then
@@ -1558,8 +1560,8 @@ function identify_agent_observability_things() {
 
    # Added for ACM 2.8:
    #
-   # TODO: These are created, but it seems that happens as a result of ACM enabling
-   # user-workload monitoring by changing the settings in the cluster-monitoring-config
+   # TODO: These are created, it seems, as a result of ACM enabling user-workload
+   # monitoring by changing the settings in the cluster-monitoring-config
    # ConfigMap in the openshift-monitoring namespace.
 
    # add_agent_cluster_roles "$component" "prometheus-user-workload"
@@ -1671,13 +1673,13 @@ do_hub_stuff=0
 do_agent_stuff=0
 
 if [[ "$hub_or_agent" == "agent" ]]; then
-   msg "PErforming cleanup of ACM/MCE agent components."
+   msg "Performing cleanup of ACM/MCE agent components."
    do_agent_stuff=1
 elif [[ "$hub_or_agent" == "hub" ]]; then
-   msg "PErforming cleanup of ACM/MCE hub components."
+   msg "Performing cleanup of ACM/MCE hub components."
    do_hub_stuff=1
 elif [[ "$hub_or_agent" == "both" ]]; then
-   msg "PErforming cleanup of ACM/MCE hub and agent components."
+   msg "Performing cleanup of ACM/MCE hub and agent components."
    do_agent_stuff=1
    do_hub_stuff=1
 else
