@@ -1,8 +1,96 @@
 # Source me, don't run me.
 
-# Copyright (c) 2023 Red Hat, Inc.
+# Copyright (c) 2023-2024, Red Hat, Inc.
 
 # Author: joeg-pro
+
+#------------------
+# Pre-req checking
+#------------------
+
+function die_if_not_bash_v4() {
+
+   if ((BASH_VERSINFO[0] < 4)); then
+      >&2 echo "Error: This script requires at least bash-4.0 to run."
+      exit 5
+   fi
+}
+
+declare -A required_commands
+
+function identify_required_commands() {
+   for c in "$@"; do
+      required_commands[$c]=1
+   done
+}
+
+
+function die_if_required_commands_missing() {
+
+   # The script that is sourcing this function library might not realize what
+   # this function library usese under the covers.  So tack those commands onto
+   # the lis.
+
+   identify_required_commands "oc" "jq"
+
+   # Check for each required command and exit if any are missing.
+
+   local something_is_missing=0
+   for c in "${!required_commands[@]}"; do
+      r=$(command -v "$c")
+      if [[ -z "$r" ]]; then
+         >&2 echo "Error: Required utility/cli \"$c\" not found."
+         something_is_missing=1
+      fi
+   done
+   if ((something_is_missing != 0)); then
+      exit 5
+   fi
+}
+
+function die_if_not_cluster_admin() {
+
+   me=$(oc whoami 2> /dev/null)
+   rc=$?
+   if ((rc != 0)); then
+      >&2 echo "Error:  No authenticated oc/ocp session exists (oc whoami failed)."
+      exit 5
+   fi
+
+   # TEMPORARY IMPLEMTATION FOLLOWS
+
+   # If you login as kubeadmin with the OCP-installer-generated kubeadmin-password,
+   # oc whoami says you are kube:admin but that user won't appear in the list of
+   # cluster_admin users as derived by the simple impelemtnation below. A better
+   # implemetation might work backwords from the token from the logged in session
+   # instead of replying on who (username) oc whoami says you are.
+   #
+   # But as a temporary thing, assume we're ok if the user is kube"admin.
+
+   if [[ "$me" == "kube:admin" ]]; then
+      return
+   fi
+
+   # Find all of the users that have a cluster role binding to the cluster-admin role
+   # and see if the currently logged in use ris in that list.
+
+   # TEMPORARY IMPLEMETATION:  Find a way to not use jq, as it would be a shame to
+   # introudce a dependecy on jq just for this checking.
+
+   cluster_admin_users=$( \
+       oc get clusterrolebindings -o json \
+       | jq -r '.items[] |select(.roleRef.name=="cluster-admin") |.subjects[] |select(.kind=="User") |.name'
+   )
+   for u in $cluster_admin_users; do
+      if [[ $u == $me ]]; then
+         return
+      fi
+   done
+
+   >&2 echo "Error:  Currently logged-in user does not have the cluster-admin role."
+   exit 5
+}
+
 
 #----------------------------------------
 # COnstants for referencing fixed things
