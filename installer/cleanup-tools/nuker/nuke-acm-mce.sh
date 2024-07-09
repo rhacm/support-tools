@@ -741,10 +741,11 @@ agent_api_services=()
 agent_pod_namespaces=()
 agent_other_namespaces=()
 agent_cluster_roles=()
+agent_cluster_role_bindings=()
+agent_roles=()
 agent_cr_kinds=()
 agent_ocp_monitoring_promrules=()
 agent_ocp_monitoring_servicemonitors=()
-agent_roles=()
 
 agent_mutating_webhooks=()
 
@@ -789,9 +790,10 @@ function add_agent_api_services()                   { _add_to_list agent_api_ser
 function add_agent_pod_namespaces()                 { _add_to_list agent_pod_namespaces "$@"; }
 function add_agent_other_namespaces()               { _add_to_list agent_pod_namespaces "$@"; }
 
-function add_agent_cr_kinds()                       { _add_to_list agent_cr_kinds "$@";      }
-function add_agent_cluster_roles()                  { _add_to_list agent_cluster_roles "$@"; }
-function add_agent_roles()                          { _add_to_list agent_roles "$@";         }
+function add_agent_cr_kinds()                       { _add_to_list agent_cr_kinds "$@";              }
+function add_agent_cluster_roles()                  { _add_to_list agent_cluster_roles "$@";         }
+function add_agent_cluster_role_bindings()          { _add_to_list agent_cluster_role_bindings "$@"; }
+function add_agent_roles()                          { _add_to_list agent_roles "$@";                 }
 
 function add_agent_ocp_monitoring_promrules()       { _add_to_list agent_ocp_monitoring_promrules "$@"; }
 function add_agent_ocp_monitoring_servicemonitors() { _add_to_list agent_ocp_monitoring_servicemonitors "$@"; }
@@ -1033,7 +1035,7 @@ function nuke_cluster_role_bindings() {
    local t=$(oc get "clusterrolebindings" -o jsonpath="$jp")
    if [[ -n "$t" ]]; then
       local pattern
-      for pattern in "${patterns[@]}"; do
+      for pattern in ${patterns[@]}; do
          local hits=$(grep "$pattern" <<< "$t")
          if [[ -n "$hits" ]]; then
             local line
@@ -1120,6 +1122,12 @@ function nuke_agent_cluster_roles() {
 
    msg "Deleting agent cluster roles and bindings to them."
    nuke_cluster_roles agent_cluster_roles
+}
+
+function nuke_agent_cluster_role_bindings() {
+
+   msg "Deleting agent cluster role bindings."
+   nuke_cluster_role_bindings agent_cluster_role_bindings
 }
 
 function nuke_agent_roles() {
@@ -1543,7 +1551,8 @@ function identify_agent_foundation_things() {
 
    # Added for MCE 2.6:
    # NB: Use a slash to separate namespace from role name
-   add_agent_roles          "$component" "kube-system/open-cluster-management:management:klusterlet:extension-apiserver"
+   add_agent_roles                 "$component" "kube-system/open-cluster-management:management:klusterlet:extension-apiserver"
+   add_agent_cluster_role_bindings "$component" "open-cluster-management:klusterlet-work:execution-admin"
 }
 
 add_agent_components observability
@@ -1845,7 +1854,8 @@ if [[ $do_agent_stuff -ne 0 ]]; then
    run_agent_special_resource_patchers
    nuke_agent_cr_kinds
    nuke_agent_cluster_roles
-   nuke_agent_roles
+   nuke_agent_cluster_role_bindings  # Added for MCE 2.6
+   nuke_agent_roles                  # Added for MCE 2.6
    nuke_agent_ocp_monitoring_additions
 fi
 
