@@ -37,6 +37,9 @@
 # - Bash V4
 # - oc
 # - cut
+# Tested on:
+# - RHEL 8 (via ubi-minimal forr RHEL 8)
+# - RHEL 9 (via ubi-minimal for RHEL 9)
 #
 # Assumes:
 # - An authenticated session to the ACM/MCE hub cluster exists under a userid that has
@@ -341,7 +344,7 @@ function nuke_kind_from_namespace_matching_name_patterns() {
    local inst_list=$(oc -n "$ns" get "$kind" -o name)
 
    local pattern
-   for pattern in "${pattern_list[@]}"; do
+   for pattern in ${pattern_list[@]}; do
       local hits=$(grep "$pattern" <<< "$inst_list")
       if [[ -n "$hits" ]]; then
          while read line; do
@@ -738,6 +741,8 @@ agent_api_services=()
 agent_pod_namespaces=()
 agent_other_namespaces=()
 agent_cluster_roles=()
+agent_cluster_role_bindings=()
+agent_roles=()
 agent_cr_kinds=()
 agent_ocp_monitoring_promrules=()
 agent_ocp_monitoring_servicemonitors=()
@@ -785,8 +790,10 @@ function add_agent_api_services()                   { _add_to_list agent_api_ser
 function add_agent_pod_namespaces()                 { _add_to_list agent_pod_namespaces "$@"; }
 function add_agent_other_namespaces()               { _add_to_list agent_pod_namespaces "$@"; }
 
-function add_agent_cr_kinds()                       { _add_to_list agent_cr_kinds "$@"; }
-function add_agent_cluster_roles()                  { _add_to_list agent_cluster_roles "$@"; }
+function add_agent_cr_kinds()                       { _add_to_list agent_cr_kinds "$@";              }
+function add_agent_cluster_roles()                  { _add_to_list agent_cluster_roles "$@";         }
+function add_agent_cluster_role_bindings()          { _add_to_list agent_cluster_role_bindings "$@"; }
+function add_agent_roles()                          { _add_to_list agent_roles "$@";                 }
 
 function add_agent_ocp_monitoring_promrules()       { _add_to_list agent_ocp_monitoring_promrules "$@"; }
 function add_agent_ocp_monitoring_servicemonitors() { _add_to_list agent_ocp_monitoring_servicemonitors "$@"; }
@@ -938,14 +945,15 @@ function nuke_cluster_roles() {
    local t=$(oc get "clusterrolebindings" -o jsonpath="$jp")
    if [[ -n "$t" ]]; then
 
-      # NB: This is a little sloppy, as we're not restricting the match to just the role-ref.
-      # On the other hand, the sloppiness might benefit us as it might also ferret out a
-      # role binding to a Openshift-defined role if the role-binding name matches the
-      # nameing pattern of one of our roles.
+      # NB: This is a little sloppy, as we're not restricting the match to just the
+      # role-ref by using a pattern that is anchored at the end with the slash that
+      # separates the role-ref from the binding name. Well, for that matter, we're
+      # also not considering that the pattern might have dots that aren't escaped
+      # so they are interpreted as dots.
 
       local pattern
-      for pattern in "${patterns[@]}"; do
-         local hits=$(grep "$pattern" <<< "$t")
+      for pattern in ${patterns[@]}; do
+         local hits=$(grep "^$pattern" <<< "$t")
          if [[ -n "$hits" ]]; then
             local line
             while read line; do
@@ -958,6 +966,58 @@ function nuke_cluster_roles() {
    fi
 
    nuke_cluster_kind_matching_name_patterns "clusterrole" "$patterns_array_name"
+}
+
+function nuke_roles() {
+
+   local ns_and_patterns_array_name="$1"
+   local -n ns_and_patterns="$ns_and_patterns_array_name"
+
+   declare -A patterns_by_ns
+
+   # Organize the patterns into a list per namespace so we can do this
+   # a little more efficinetly.
+
+   for ns_and_pattern in ${ns_and_patterns[@]}; do
+      local ns=${ns_and_pattern%/*}
+      local pattern=${ns_and_pattern#*/}
+      patterns_by_ns["$ns"]+=" $pattern"
+   done
+
+   local jp=$(jsonpath_range_over_items ".roleRef.name" ".metadata.name")
+
+   for ns in "${!patterns_by_ns[@]}"; do
+      local nuke_role_patterns=()
+      for pattern in "${patterns_by_ns[$ns]}"; do
+         nuke_role_patterns+=("$pattern")
+      done
+      local t=$(oc -n "$ns" get "rolebindings" -o jsonpath="$jp")
+
+      if [[ -n "$t" ]]; then
+
+         # NB: This is a little sloppy, as we're not restricting the match to just the
+         # role-ref by using a pattern that is anchored at the end with the slash that
+         # separates the role-ref from the binding name. Well, for that matter, we're
+         # also not considering that the pattern might have dots that aren't escaped
+         # so they are interpreted as dots.
+
+         local pattern
+         for pattern in ${nuke_role_patterns[@]}; do
+            local hits=$(grep "^$pattern" <<< "$t")
+            if [[ -n "$hits" ]]; then
+               local line
+               while read line; do
+                  local role_ref=$(extract_delimited_field 1 "/" "$line")
+                  local binding_name=$(extract_delimited_field 2 "/" "$line")
+                  delete_resource -n "$ns" "rolebinding/$binding_name"
+               done <<< "$hits"
+            fi
+         done
+      fi
+
+      nuke_kind_from_namespace_matching_name_patterns "role" "$ns" nuke_role_patterns
+   done
+
 }
 
 function nuke_hub_cluster_roles() {
@@ -975,7 +1035,7 @@ function nuke_cluster_role_bindings() {
    local t=$(oc get "clusterrolebindings" -o jsonpath="$jp")
    if [[ -n "$t" ]]; then
       local pattern
-      for pattern in "${patterns[@]}"; do
+      for pattern in ${patterns[@]}; do
          local hits=$(grep "$pattern" <<< "$t")
          if [[ -n "$hits" ]]; then
             local line
@@ -1064,6 +1124,18 @@ function nuke_agent_cluster_roles() {
    nuke_cluster_roles agent_cluster_roles
 }
 
+function nuke_agent_cluster_role_bindings() {
+
+   msg "Deleting agent cluster role bindings."
+   nuke_cluster_role_bindings agent_cluster_role_bindings
+}
+
+function nuke_agent_roles() {
+
+   msg "Deleting agent roles and bindings to them."
+   nuke_roles agent_roles
+}
+
 function delete_agent_namespaces() {
 
    msg "Deleting agent namespaces."
@@ -1086,6 +1158,9 @@ function nuke_agent_ocp_monitoring_additions() {
 #----------------------------------------------#
 # Per-component resource identifying functions #
 #----------------------------------------------#
+
+# Future: Get this info from a config.yaml rather than having this info
+# identified by a set of functions.
 
 add_hub_components ai
 function identify_hub_ai_things() {
@@ -1135,6 +1210,9 @@ function identify_hub_hypershift_things() {
 
    add_hub_cluster_roles "$component" "hypershift-operator"
    add_hub_cluster_roles "$component" "open-cluster-management:hypershift-preview:hypershift-addon-manager"
+
+   # Added for MCE 2.6:
+   add_validating_webhooks "$component" "hypershift.openshift.io"
 }
 
 add_hub_components cluster_manager
@@ -1355,8 +1433,8 @@ function identify_hub_mco_things() {
 
    # Added for ACM 2.8:
    #
-   # TODO: These are created, but it seems that happens as a result of ACM enabling
-   # user-workload monitoring by changing the settings in the cluster-monitoring-config
+   # TODO: These are created, it seems, as a result of ACM enabling user-workload
+   # monitoring by changing the settings in the cluster-monitoring-config
    # ConfigMap in the openshift-monitoring namespace.
 
    # add_hub_cluster_roles         "$component"  "prometheus-user-workload"
@@ -1365,7 +1443,7 @@ function identify_hub_mco_things() {
    # add_hub_cluster_role_bindings "$component"  "thanos-ruler-monitoring"
 
    # These will go away if you reconfigure to turn off user-workload monitoring.
-   # But we have no way to know that ACM is the thing that turned it on and is the
+   # But we have no way to know if ACM is the thing that turned it on and is the
    # only thing on the cluster that has an interest in having it on.
 
    if [[ $nuke_user_resource_monitoring -ne 0 ]]; then
@@ -1462,7 +1540,6 @@ function identify_agent_foundation_things() {
    # Since MCE 2.4:
    add_agent_cr_kinds       "$component" "klusterletconfigs.config.open-cluster-management.io"
 
-
    add_agent_cluster_roles  "$component" "klusterlet"
    add_agent_cluster_roles  "$component" "open-cluster-management:klusterlet-addon-"
    add_agent_cluster_roles  "$component" "open-cluster-management:klusterlet-registration:"
@@ -1471,6 +1548,11 @@ function identify_agent_foundation_things() {
 
    add_agent_cluster_roles  "$component" "open-cluster-management:klusterlet-"
    add_agent_cluster_roles  "$component" "klusterlet-bootstrap-kubeconfig"
+
+   # Added for MCE 2.6:
+   # NB: Use a slash to separate namespace from role name
+   add_agent_roles                 "$component" "kube-system/open-cluster-management:management:klusterlet:extension-apiserver"
+   add_agent_cluster_role_bindings "$component" "open-cluster-management:klusterlet-work:execution-admin"
 }
 
 add_agent_components observability
@@ -1482,10 +1564,13 @@ function identify_agent_observability_things() {
    add_agent_cr_kinds       "$component" ".observability.open-cluster-management.io"
    add_agent_cluster_roles  "$component" "metrics-collector-view"
 
+   # Added for ACM 2.11:
+   add_agent_cluster_roles  "$component" "aggregate-observabilityaddons-edit"
+
    # Added for ACM 2.8:
    #
-   # TODO: These are created, but it seems that happens as a result of ACM enabling
-   # user-workload monitoring by changing the settings in the cluster-monitoring-config
+   # TODO: These are created, it seems, as a result of ACM enabling user-workload
+   # monitoring by changing the settings in the cluster-monitoring-config
    # ConfigMap in the openshift-monitoring namespace.
 
    # add_agent_cluster_roles "$component" "prometheus-user-workload"
@@ -1597,13 +1682,13 @@ do_hub_stuff=0
 do_agent_stuff=0
 
 if [[ "$hub_or_agent" == "agent" ]]; then
-   msg "PErforming cleanup of ACM/MCE agent components."
+   msg "Performing cleanup of ACM/MCE agent components."
    do_agent_stuff=1
 elif [[ "$hub_or_agent" == "hub" ]]; then
-   msg "PErforming cleanup of ACM/MCE hub components."
+   msg "Performing cleanup of ACM/MCE hub components."
    do_hub_stuff=1
 elif [[ "$hub_or_agent" == "both" ]]; then
-   msg "PErforming cleanup of ACM/MCE hub and agent components."
+   msg "Performing cleanup of ACM/MCE hub and agent components."
    do_agent_stuff=1
    do_hub_stuff=1
 else
@@ -1647,8 +1732,6 @@ if [[ $nuking_confirmed -eq 0 ]] && [[ $dry_run_mode -eq 0 ]]; then
    msg "ON THE SAME CLUSTER AS ACM OR MCE IF THOSE OTHER APPLICATIONS OR OPERATORS"
    msg "RELY ON THE REMOVED OR RECONFIGURED THINGS.  PLEASE REFER TO COMMENTS AT"
    msg "THE TOP OF THE SCRIPT FOR A LIST OF RISKS IN THIS CATEGORY."
-   msg ""
-   msg "YOU HAVE BEEN WARNED.  :-)"
    msg ""
    msg "If you wish to proceed, invoke this script specifying the -y option to"
    msg "acknowledge these risks and proceeed with cleanup."
@@ -1771,6 +1854,8 @@ if [[ $do_agent_stuff -ne 0 ]]; then
    run_agent_special_resource_patchers
    nuke_agent_cr_kinds
    nuke_agent_cluster_roles
+   nuke_agent_cluster_role_bindings  # Added for MCE 2.6
+   nuke_agent_roles                  # Added for MCE 2.6
    nuke_agent_ocp_monitoring_additions
 fi
 

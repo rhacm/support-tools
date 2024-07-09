@@ -58,7 +58,7 @@ namespaced_resource_kinds+=("routes")
 
 namespaced_resource_kinds+=("pods")
 namespaced_resource_kinds+=("deployments")
-anamespaced_resource_kinds+=("replicasets")
+namespaced_resource_kinds+=("replicasets")
 namespaced_resource_kinds+=("statefulsets")
 namespaced_resource_kinds+=("daemonsets")
 namespaced_resource_kinds+=("jobs")
@@ -67,25 +67,38 @@ namespaced_resource_kinds+=("cronjobs")
 namespaced_resource_kinds+=("persistentvolumes")
 namespaced_resource_kinds+=("persistentvolumeclaims")
 
-# Add in all CRD kinds:
+# Exclude some CRDs that are noisy (often chaning) and not relevant to us.
+
+declare -A excluded_crd_kinds
+excluded_crd_kinds["apirequestcounts.apiserver.openshift.io"]=1
+excluded_crd_kinds["cnsvolumeoperationrequests.cns.vmware.com"]=1
+excluded_crd_kinds["cnsvspherevolumemigrations.cns.vmware.com"]=1
+
+# Add in all CRD kinds that are not excluded:
 
 cluster_scoped_crds=$(oc get "crd" -A \
    -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
    | grep "^Cluster " | cut -d' ' -f2 | sort)
 for crd in $cluster_scoped_crds; do
-   cluster_resource_kinds+=("$crd")
+   if [[ "${excluded_crd_kinds[$crd]}" -eq 0 ]]; then
+      cluster_resource_kinds+=("$crd")
+   fi
 done
 
 namespaced_crds=$(oc get "crd" -A \
    -o jsonpath='{range .items[*]}{.spec.scope}{" "}{.metadata.name}{"\n"}{end}'  \
    | grep "^Namespaced " | cut -d' ' -f2 | sort)
 for crd in $namespaced_crds; do
-   namespaced_resource_kinds+=("$crd")
+
+   if [[ "${excluded_crd_kinds[$crd]}" -eq 0 ]]; then
+      namespaced_resource_kinds+=("$crd")
+   fi
 done
 
 # Collect lists of cluster-scoped resources:
 
 for kind in ${cluster_resource_kinds[@]}; do
+   echo "Gathering lists of $kind."
    oc get "$kind" \
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
       | sort > "$kind"
@@ -94,6 +107,7 @@ done
 # Collect lists of namespace-scoped resources:
 
 for kind in ${namespaced_resource_kinds[@]}; do
+   echo "Gathering lists of $kind."
    oc get "$kind" -A \
       -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
       | sort > "$kind"
