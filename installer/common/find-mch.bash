@@ -15,7 +15,7 @@ mch_prod_pkg_name="advanced-cluster-management"
 mch_community_pkg_name="stolostron"
 mch_guess_pkg_name="$mch_prod_pkg_name"
 
-# Various CR kindss. Ech <foo>_kind variables identifies one kiind...
+# Various CR kinds. Ech <foo>_kind variables identifies one kind...
 
 # MCH operator kind:
 mch_kind="multiclusterhubs.operator.open-cluster-management.io"
@@ -34,7 +34,7 @@ mco_kind="multiclusterobservabilities.observability.open-cluster-management.io"
 mco_ns="open-cluster-management-observability"
 
 #----------------------------------------------
-# Varibles for referencing configurable things
+# Variables for referencing configurable things
 #----------------------------------------------
 
 # Variables for namespaces and other resources that are configurable. Their values

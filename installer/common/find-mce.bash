@@ -7,7 +7,7 @@
 # Requires common-functions.bash, assumed to be already source'ed in.
 
 #----------------------------------------
-# COnstants for referencing fixed things
+# Constants for referencing fixed things
 #----------------------------------------
 
 # OLMM package names:
@@ -39,7 +39,7 @@ cm_local_cluster_ns="local-cluster"
 hive_ns="hive"
 
 #----------------------------------------------
-# Varibles for referencing configurable things
+# Variables for referencing configurable things
 #----------------------------------------------
 
 # Variables for namespaces and other resources that are configurable. Their values
