@@ -38,7 +38,7 @@
 # - oc
 # - cut
 # Tested on:
-# - RHEL 8 (via ubi-minimal forr RHEL 8)
+# - RHEL 8 (via ubi-minimal for RHEL 8)
 # - RHEL 9 (via ubi-minimal for RHEL 9)
 #
 # Assumes:
@@ -719,6 +719,8 @@ hub_components=()
 api_services=()
 mutating_webhooks=()
 validating_webhooks=()
+cli_downloads=()
+coreos_operators=()
 
 sub_operator_operand_kinds=()
 sub_operator_installed_operators=()
@@ -800,9 +802,28 @@ function add_agent_ocp_monitoring_servicemonitors() { _add_to_list agent_ocp_mon
 
 function add_agent_mutating_webhooks()              { _add_to_list agent_mutating_webhooks "$@"; }
 
+function add_coreos_operators()                     { _add_to_list coreos_operators "$@"; }
+function add_cli_downloads()                        { _add_to_list cli_downloads "$@"; }
+
 #---------------------------#
 # Resource nuking functions #
 #---------------------------#
+
+function nuke_cli_downloads() {
+
+   msg "Removing hub CLI Downloads."
+
+   nuke_cluster_kind_matching_name_patterns "consoleclidownloads.console.openshift.io" cli_downloads
+
+}
+
+function nuke_coreos_operators() {
+
+   msg "Removing operators.operators.coreos.com instances"
+
+   nuke_cluster_kind_matching_name_patterns "operators.operators.coreos.com" coreos_operators
+
+}
 
 function nuke_webhooks_and_api_services() {
 
@@ -1065,7 +1086,7 @@ function nuke_hub_console_plugins() {
 
 function nuke_hub_ocp_monitoring_additions() {
 
-   msg "Deleting hub addiitons made to openshift-monitoring namespace."
+   msg "Deleting hub additions made to openshift-monitoring namespace."
 
    nuke_kind_from_namespace_matching_name_patterns "servicemonitor" \
       "openshift-monitoring" hub_ocp_monitoring_servicemonitors
@@ -1146,7 +1167,7 @@ function delete_agent_namespaces() {
 
 function nuke_agent_ocp_monitoring_additions() {
 
-   msg "Deleting agent addiitons made to openshift-monitoring namespace."
+   msg "Deleting agent additions made to openshift-monitoring namespace."
 
    nuke_kind_from_namespace_matching_name_patterns "servicemonitor" \
       "openshift-monitoring" agent_ocp_monitoring_servicemonitors
@@ -1295,6 +1316,7 @@ function identify_hub_managed_service_account_things() {
 
    local component="managed_service_account"
    add_hub_cluster_roles "$component" "open-cluster-management:managed-serviceaccount:"
+   add_agent_cr_kinds    "$componnet" ".managedserviceaccounts.authentication.open-cluster-management.io"
 }
 
 add_hub_components discovery
@@ -1326,7 +1348,7 @@ add_hub_components clc
 function identify_hub_clc_things() {
 
    local component="clc"
-   add_hub_cr_kinds "$component" "clustercurators.cluster.open-cluster-management.io "
+   add_hub_cr_kinds "$component" "clustercurators.cluster.open-cluster-management.io"
 }
 
 add_hub_components mce_operator
@@ -1336,6 +1358,7 @@ function identify_hub_mce_operator_things() {
 
    local component="mce_operator"
 
+   add_api_services       "$component" "v1.multicluster.openshift.io"
    add_validating_webhooks    "$component" "multiclusterengines.multicluster.openshift.io"
 
    add_hub_top_pod_namespaces "$component" "$MCE_NS"
@@ -1349,6 +1372,9 @@ function identify_hub_mce_operator_things() {
    add_hub_cluster_roles      "$component" "multicluster-engine:"
 
    add_top_operator_operand_kinds "$component" "multiclusterengines.multicluster.openshift.io"
+
+   # Since MCE 2.7:
+   add_hub_cr_kinds "$component" "internalenginecomponents.multicluster.openshift.io"
 }
 
 add_hub_components mch_operator
@@ -1358,6 +1384,8 @@ function identify_hub_mch_operator_things() {
 
    local component="mch_operator"
 
+   add_api_services       "$component" ".authentication.open-cluster-management.io"
+   add_api_services       "$component" "v1.operator.open-cluster-management.io"
    add_validating_webhooks    "$component" "multiclusterhub-operator-validating-webhook"
 
    add_hub_top_pod_namespaces "$component" "$MCH_NS"
@@ -1368,6 +1396,16 @@ function identify_hub_mch_operator_things() {
    add_hub_cluster_roles "$component" ".submarineraddon.open-cluster-management.io"
 
    add_top_operator_operand_kinds "$component" "multiclusterhubs.operator.open-cluster-management.io"
+
+   # Since ACM 2.12:
+   add_hub_cr_kinds        "$component" "internalhubcomponents.operator.open-cluster-management.io"
+
+   # Since ACM 2.x
+   add_coreos_operators    "$component" "advanced-cluster-management.open-cluster-management"
+   add_coreos_operators    "$component" "multicluster-engine.multicluster-engine"
+   add_coreos_operators    "$component" "redhat-oadp-operator.open-cluster-management-backup"
+
+   add_hub_cluster_role_bindings "$component" "flightctl-"
 }
 
 add_hub_components appsub
@@ -1377,9 +1415,38 @@ function identify_hub_appsub_things() {
 
    add_validating_webhooks "$component" "application-webhook-validator"
    add_validating_webhooks "$component" "channels.apps.open.cluster.management.webhook.validator"
-   add_hub_cr_kinds        "$component" ".apps.open-cluster-management.io "
+   add_hub_cr_kinds        "$component" ".apps.open-cluster-management.io"
    add_hub_cr_kinds        "$component" "applications.app.k8s.io"
 }
+
+add_hub_components siteconfig
+function identify_hub_siteconfig_things() {
+
+   local component="siteconfig"
+
+   # Since ACM 2.12:
+
+   add_validating_webhooks "$component" "clusterinstances.siteconfig.open-cluster-management.io"
+
+   add_api_services       "$component" ".siteconfig.open-cluster-management.io"
+
+   add_hub_cr_kinds        "$component" ".siteconfig.open-cluster-management.io"
+}
+
+add_hub_components flightctl
+function identify_hub_flightctl_things() {
+
+   local component="flightctl"
+
+   # Since ACM 2.13:
+   add_hub_cluster_role_bindings "$component" "flightctl-"
+
+   add_hub_cluster_roles "$component" "flightctl-client"
+   add_hub_cluster_roles "$component" "flightctl-api-open-cluster-management"
+
+   add_hub_console_plugins "$component" "flightctl-plugin"
+}
+
 
 add_hub_components grc
 function identify_hub_grc_things() {
@@ -1397,6 +1464,9 @@ function identify_hub_grc_things() {
 
    # Since ACM 2.9:
    add_validating_webhooks "$component" "propagator-webhook-validating-configuration"
+
+   # Since ACM 2.12:
+   add_cli_downloads "$component" "acm-cli-downloads"
 }
 
 add_hub_components mco
@@ -1620,6 +1690,9 @@ function identify_agent_hypershift_things() {
 
    # Since ACM 2.8:
 
+   # Since MCE 2.8:
+   add_api_services       "$component" ".openstack.k-orc.cloud"
+
    add_agent_pod_namespaces "$component" "hypershiftr"
 
    add_agent_pod_namespaces "$component" "hypershift"
@@ -1630,6 +1703,8 @@ function identify_agent_hypershift_things() {
    add_agent_cr_kinds "$component" ".cluster.x-k8s.io"
    add_agent_cr_kinds "$component" ".hypershift.openshift.io"
    add_agent_cr_kinds "$component" ".capi-provider.agent-install.openshift.io"
+   # Since MCE 2.8:
+   add_agent_cr_kinds "$component" ".openstack.k-orc.cloud"
 
    add_agent_cr_kinds "$component" "clusterclaims.cluster.open-cluster-management.io"  # Is this really due to hypershift?
 
@@ -1839,11 +1914,12 @@ if [[ $do_hub_stuff -ne 0 ]]; then
    nuke_hub_cluster_role_bindings
 fi
 
-# Get rid of miscellaneous tihings.
+# Get rid of miscellaneous things.
 
 if [[ $do_hub_stuff -ne 0 ]]; then
    nuke_hub_console_plugins
    nuke_hub_ocp_monitoring_additions
+   nuke_cli_downloads
 fi
 
 # Do cleanup of agent things (for when local-clsuter is imported)
@@ -1873,6 +1949,10 @@ fi
 
 if [[ $do_agent_stuff -ne 0 ]]; then
    delete_agent_namespaces
+fi
+
+if [[ $do_hub_stuff -ne 0 ]]; then
+   nuke_coreos_operators
 fi
 
 exit 0

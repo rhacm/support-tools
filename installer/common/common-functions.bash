@@ -93,7 +93,7 @@ function die_if_not_cluster_admin() {
 
 
 #----------------------------------------
-# COnstants for referencing fixed things
+# Constants for referencing fixed things
 #----------------------------------------
 
 # Various CR kindss. Ech <foo>_kind variables identifies one kiind...
